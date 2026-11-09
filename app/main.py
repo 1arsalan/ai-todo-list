@@ -6,9 +6,18 @@ Now includes:
 - Duplicate detection
 - Due date display + overdue highlighting
 """
+import sys
+from pathlib import Path
+
+# Project root ko sys.path mein add karein
+root_path = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(root_path))
+
+# Ab baaki imports
 import streamlit as st
 from datetime import datetime
 
+# Backend imports
 from src.database import (
     add_task,
     get_all_tasks,

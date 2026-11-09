@@ -1,0 +1,13 @@
+# Development & testing dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Testing
+pytest==8.0.0
+pytest-cov==4.1.0
+
+# Linting (optional but recommended)
+flake8==7.0.0
+black==24.1.1
+
+# Type checking (optional)
+mypy==1.8.0

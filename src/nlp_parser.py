@@ -5,13 +5,13 @@ Examples:
     "Kal 5 baje meeting"        → task="meeting", due="<tomorrow> 17:00"
     "Submit report tomorrow"    → task="Submit report", due="<tomorrow> 00:00"
     "Buy groceries next Monday" → task="Buy groceries", due="<next Monday> 00:00"
-    "Pay bill on 15th December" → task="Pay bill", due="<15 Dec> 00:00"
 """
 import re
 from datetime import datetime
 from typing import Optional
 
 import dateparser
+from dateparser.search import search_dates
 
 
 # Words that indicate a date/time is present
@@ -20,18 +20,37 @@ DATE_HINT_WORDS = {
     "today", "tomorrow", "tonight", "yesterday",
     "monday", "tuesday", "wednesday", "thursday",
     "friday", "saturday", "sunday",
-    "next week", "next month", "next monday",
+    "next week", "next month",
     "am", "pm",
     # Urdu/Roman Urdu
     "aaj", "kal", "parson", "abhi", "subah", "shaam", "raat",
     "baje", "bajay",
 }
 
-# Regex to detect time patterns like "5 baje", "5:30", "17:00", "5pm"
-TIME_PATTERN = re.compile(
-    r"\b\d{1,2}(:\d{2})?\s*(am|pm|baje|bajay|o'?clock)?\b",
-    re.IGNORECASE,
-)
+# Patterns to remove from task text (case-insensitive)
+DATE_PATTERNS = [
+    r"\btoday\b",
+    r"\btomorrow\b",
+    r"\btonight\b",
+    r"\byesterday\b",
+    r"\baaj\b",
+    r"\bkal\b",
+    r"\bparson\b",
+    r"\babhi\b",
+    r"\bsubah\b",
+    r"\bshaam\b",
+    r"\braat\b",
+    r"\bnext\s+week\b",
+    r"\bnext\s+month\b",
+    r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+    r"\b\d{1,2}(:\d{2})?\s*(am|pm|baje|bajay|o'?clock)\b",
+    r"\bat\s+\d{1,2}(:\d{2})?\b",
+    r"\bon\s+\d{1,2}(st|nd|rd|th)?\b",
+    r"\b\d{1,2}(st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b",
+]
+
+# Compile once for performance
+_COMPILED_PATTERNS = [re.compile(p, re.IGNORECASE) for p in DATE_PATTERNS]
 
 
 def _contains_date_hint(text: str) -> bool:
@@ -43,32 +62,16 @@ def _contains_date_hint(text: str) -> bool:
 def _clean_task_text(text: str) -> str:
     """Remove date/time words from task text."""
     cleaned = text
-
-    # Remove common date/time words
-    date_words = [
-        r"\btoday\b", r"\btomorrow\b", r"\btonight\b", r"\byesterday\b",
-        r"\baaj\b", r"\bkal\b", r"\bparson\b", r"\babhi\b",
-        r"\bsubah\b", r"\bshaam\b", r"\braat\b",
-        r"\bnext\s+week\b", r"\bnext\s+month\b",
-        r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
-        r"\b\d{1,2}(:\d{2})?\s*(am|pm|baje|bajay|o'?clock)\b",
-        r"\bat\s+\d{1,2}(:\d{2})?\b",
-        r"\bon\s+\d{1,2}(st|nd|rd|th)?\b",
-    ]
-    for pattern in date_words:
-        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
-
-    # Collapse multiple spaces and strip
+    for pattern in _COMPILED_PATTERNS:
+        cleaned = pattern.sub("", cleaned)
+    # Collapse whitespace
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
-
     return cleaned
 
 
 def parse_task(text: str) -> dict:
     """
-    Parse a task string and extract:
-        - task: the clean task description
-        - due_date: ISO datetime string or None
+    Parse a task string and extract task description + due date.
 
     Returns:
         {"task": str, "due_date": Optional[str]}
@@ -78,29 +81,37 @@ def parse_task(text: str) -> dict:
 
     text = text.strip()
 
-    # Check if any date hint exists
+    # No date hint → return as-is
     if not _contains_date_hint(text):
         return {"task": text, "due_date": None}
 
-    # Try to parse date using dateparser
-    parsed = dateparser.parse(
-        text,
-        languages=["en", "ur"],
-        settings={
-            "PREFER_DATES_FROM": "future",
-            "RELATIVE_BASE": datetime.now(),
-            "RETURN_AS_TIMEZONE_AWARE": False,
-        },
-    )
+    # Use search_dates to find date within the sentence
+    try:
+        matches = search_dates(
+            text,
+            languages=["en"],
+            settings={
+                "RELATIVE_BASE": datetime.now(),
+                "RETURN_AS_TIMEZONE_AWARE": False,
+            },
+        )
+    except Exception:
+        matches = None
 
-    if not parsed:
-        return {"task": text, "due_date": None}
+    # If no matches found, return cleaned text with no date
+    if not matches:
+        cleaned = _clean_task_text(text)
+        return {"task": cleaned or text, "due_date": None}
 
-    # Format as ISO string
-    due_date = parsed.strftime("%Y-%m-%d %H:%M")
+    # matches is a list of (matched_text, datetime) tuples
+    # Take the first match
+    matched_text, parsed_date = matches[0]
 
-    # Clean task text (remove date words)
-    clean_task = _clean_task_text(text)
+    due_date = parsed_date.strftime("%Y-%m-%d %H:%M")
+
+    # Remove the matched date text from task description
+    clean_task = text.replace(matched_text, "").strip()
+    clean_task = re.sub(r"\s+", " ", clean_task).strip()
 
     # If cleaning removed everything, fall back to original
     if not clean_task:
@@ -124,7 +135,7 @@ if __name__ == "__main__":
         "Watch netflix tonight",
         "Buy groceries next Monday",
         "Pay rent on 15th December",
-        "Fix production bug",  # no date
+        "Fix production bug",
         "Read book chapter",
     ]
 
