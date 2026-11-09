@@ -1,28 +1,29 @@
 """
-AI To-Do List — Streamlit Frontend
+AI To-Do List — Streamlit Frontend (Phase 4)
 
-This is the UI layer. It calls backend functions from:
-- src.database  (add/get/update/delete tasks)
-- src.predict   (AI priority + category predictions)
+Now includes:
+- NLP date parsing
+- Duplicate detection
+- Due date display + overdue highlighting
 """
 import streamlit as st
 from datetime import datetime
 
-# Import backend functions
 from src.database import (
     add_task,
     get_all_tasks,
     mark_complete,
     delete_task,
     get_stats,
-    get_task,
 )
 from src.predict import predict_all
+from src.nlp_parser import parse_task
+from src.duplicate_check import find_duplicates
 from src.config import PRIORITY_LEVELS, CATEGORIES, APP_NAME, APP_VERSION
 
 
 # ============================================================
-# PAGE CONFIG (must be first Streamlit call)
+# PAGE CONFIG
 # ============================================================
 st.set_page_config(
     page_title=APP_NAME,
@@ -33,7 +34,32 @@ st.set_page_config(
 
 
 # ============================================================
-# SIDEBAR — Stats & Info
+# HELPERS
+# ============================================================
+def is_overdue(due_date_str: str | None, done: bool) -> bool:
+    """Check if a task is overdue (due date in the past and not done)."""
+    if not due_date_str or done:
+        return False
+    try:
+        due = datetime.fromisoformat(due_date_str)
+        return due < datetime.now()
+    except Exception:
+        return False
+
+
+def format_due_date(due_date_str: str | None) -> str:
+    """Format due date nicely."""
+    if not due_date_str:
+        return ""
+    try:
+        due = datetime.fromisoformat(due_date_str)
+        return due.strftime("%d %b %Y, %I:%M %p")
+    except Exception:
+        return due_date_str
+
+
+# ============================================================
+# SIDEBAR
 # ============================================================
 def render_sidebar():
     with st.sidebar:
@@ -43,7 +69,6 @@ def render_sidebar():
 
         st.subheader("📊 Stats")
         stats = get_stats()
-        total = stats.get("total", 0)
 
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -53,42 +78,40 @@ def render_sidebar():
         with col3:
             st.metric("🟢 Low", stats.get("Low", 0))
 
-        st.caption(f"Total tasks: **{total}**")
+        st.caption(f"Total tasks: **{stats.get('total', 0)}**")
 
         st.markdown("---")
-        st.subheader("ℹ️ How it works")
+        st.subheader("✨ AI Features")
         st.markdown(
             """
-            **AI models trained on your tasks:**
-            - Priority prediction (High/Medium/Low)
-            - Category detection (Work/Personal/Health/Study/Entertainment)
-
-            Just type a task — AI does the rest!
+            - 🧠 **Priority prediction**
+            - 🏷️ **Category detection**
+            - 📅 **Date parsing** ("kal 5 baje")
+            - 🔍 **Duplicate detection**
             """
         )
 
 
 # ============================================================
-# ADD TASK SECTION
+# ADD TASK
 # ============================================================
 def render_add_task():
     st.subheader("➕ Add New Task")
 
     with st.form("add_task_form", clear_on_submit=True):
-        col1, col2 = st.columns([2, 1])
+        col1, col2 = st.columns([3, 1])
 
         with col1:
             task_text = st.text_input(
                 "Task description",
-                placeholder="e.g., Submit exam form tomorrow",
-                help="Type naturally — AI will predict priority and category",
+                placeholder="e.g., Kal 5 baje meeting with client",
+                help="Type naturally — AI will parse date, predict priority & category",
             )
 
         with col2:
             override_priority = st.selectbox(
                 "Priority",
                 ["Auto (AI)"] + PRIORITY_LEVELS,
-                help="Leave as 'Auto' to let AI decide",
             )
 
         submitted = st.form_submit_button("➕ Add Task", use_container_width=True)
@@ -98,66 +121,87 @@ def render_add_task():
                 st.error("⚠️ Task text cannot be empty.")
                 return
 
-            # AI prediction
-            try:
-                with st.spinner("🧠 AI is analyzing..."):
-                    predictions = predict_all(task_text)
-            except Exception as e:
-                st.error(f"Prediction failed: {e}")
+            # ---- 1. Parse date & clean task ----
+            with st.spinner("📅 Parsing date..."):
+                parsed = parse_task(task_text)
+
+            clean_task = parsed["task"]
+            due_date = parsed["due_date"]
+
+            # ---- 2. Duplicate check ----
+            existing = get_all_tasks(show_done=False)
+            existing_titles = [t["title"] for t in existing]
+
+            with st.spinner("🔍 Checking for duplicates..."):
+                duplicates = find_duplicates(clean_task, existing_titles)
+
+            if duplicates:
+                st.warning(
+                    f"⚠️ **Possible duplicate detected!**  \n"
+                    f"Similar task: **'{duplicates[0]['task']}'** "
+                    f"(similarity: {duplicates[0]['similarity']:.0%})"
+                )
+                st.info("If this is different, click 'Add Task' again to confirm.")
                 return
+
+            # ---- 3. AI predictions ----
+            with st.spinner("🧠 AI is analyzing..."):
+                predictions = predict_all(clean_task)
 
             ai_priority = predictions["priority"]
             ai_category = predictions["category"]
 
-            # Override if user chose manual priority
             final_priority = (
-                ai_priority if override_priority == "Auto (AI)" else override_priority
+                ai_priority
+                if override_priority == "Auto (AI)"
+                else override_priority
             )
 
-            # Save to database
+            # ---- 4. Save ----
             task_id = add_task(
-                title=task_text.strip(),
+                title=clean_task,
                 priority=final_priority,
                 category=ai_category,
-                due_date=None,  # NLP parser will add this in Phase 4
+                due_date=due_date,
             )
 
-            st.success(
+            # ---- 5. Success message ----
+            msg = (
                 f"✅ Task added! (ID: {task_id})  \n"
-                f"**Priority:** {final_priority}  |  **Category:** {ai_category}"
+                f"**Priority:** {final_priority} | **Category:** {ai_category}"
             )
+            if due_date:
+                msg += f"  \n📅 **Due:** {format_due_date(due_date)}"
+            if clean_task != task_text.strip():
+                msg += f"  \n✂️ Original: _{task_text.strip()}_"
+            st.success(msg)
 
-            # Show if manual override was used
             if override_priority != "Auto (AI)" and override_priority != ai_priority:
-                st.info(f"ℹ️ AI suggested '{ai_priority}', you chose '{override_priority}'")
+                st.info(
+                    f"ℹ️ AI suggested '{ai_priority}', you chose '{override_priority}'"
+                )
 
             st.rerun()
 
 
 # ============================================================
-# TASK LIST SECTION
+# TASK LIST
 # ============================================================
 def render_task_list():
     st.subheader("📋 Your Tasks")
 
-    # ---- Filters ----
     col1, col2, col3 = st.columns(3)
     with col1:
         filter_priority = st.selectbox(
-            "Filter by Priority",
-            ["All"] + PRIORITY_LEVELS,
-            key="filter_priority",
+            "Priority", ["All"] + PRIORITY_LEVELS, key="filter_priority"
         )
     with col2:
         filter_category = st.selectbox(
-            "Filter by Category",
-            ["All"] + CATEGORIES,
-            key="filter_category",
+            "Category", ["All"] + CATEGORIES, key="filter_category"
         )
     with col3:
         show_done = st.checkbox("Show completed", value=False, key="show_done")
 
-    # ---- Fetch tasks ----
     tasks = get_all_tasks(
         filter_priority=None if filter_priority == "All" else filter_priority,
         filter_category=None if filter_category == "All" else filter_category,
@@ -170,42 +214,42 @@ def render_task_list():
 
     st.caption(f"Showing **{len(tasks)}** task(s)")
 
-    # ---- Render each task ----
     for task in tasks:
         render_task_card(task)
 
 
 def render_task_card(task: dict):
-    """Render a single task as a card."""
     priority = task["priority"]
     category = task["category"]
-    done = task["done"]
+    done = bool(task["done"])
+    due_date = task.get("due_date")
+    overdue = is_overdue(due_date, done)
 
-    # Priority color emoji
     priority_emoji = {"High": "🔴", "Medium": "🟡", "Low": "🟢"}.get(priority, "⚪")
 
-    # Layout: [checkbox | task text | priority | category | buttons]
     col1, col2, col3, col4, col5 = st.columns([0.5, 4, 1, 1.2, 1.2])
 
     with col1:
-        # Checkbox to toggle completion
         new_done = st.checkbox(
-            "",
-            value=bool(done),
-            key=f"done_{task['id']}",
-            label_visibility="collapsed",
+            "", value=done, key=f"done_{task['id']}", label_visibility="collapsed"
         )
-        if new_done != bool(done):
+        if new_done != done:
             mark_complete(task["id"], new_done)
             st.rerun()
 
     with col2:
-        if done:
-            st.markdown(f"~~{task['title']}~~")
-        else:
-            st.markdown(f"**{task['title']}**")
+        title = f"~~{task['title']}~~" if done else f"**{task['title']}**"
+        if overdue:
+            title = f"🚨 {title}"
+        st.markdown(title)
 
-        # Show created time as caption
+        if due_date:
+            due_display = format_due_date(due_date)
+            if overdue:
+                st.caption(f"🚨 **OVERDUE:** {due_display}")
+            else:
+                st.caption(f"📅 Due: {due_display}")
+
         created = task.get("created_at", "")
         if created:
             try:
@@ -229,13 +273,15 @@ def render_task_card(task: dict):
 
 
 # ============================================================
-# MAIN APP
+# MAIN
 # ============================================================
 def main():
     render_sidebar()
 
     st.title("🤖 AI-Powered To-Do List")
-    st.caption("Type any task — AI predicts priority and category automatically.")
+    st.caption(
+        "AI parses dates, predicts priority & category, and prevents duplicates."
+    )
 
     st.markdown("---")
 
@@ -245,11 +291,10 @@ def main():
 
     render_task_list()
 
-    # Footer
     st.markdown("---")
     st.caption(
-        "Built with Streamlit + scikit-learn | Phase 3 of 6 complete | "
-        "Next: NLP date parsing & duplicate detection"
+        "Built with Streamlit + scikit-learn + sentence-transformers | "
+        "Phase 4 of 6 complete"
     )
 
 
