@@ -98,6 +98,7 @@ if st.session_state.get("authentication_status"):
 # ==========================================
 # LOGIN / SIGN UP / FORGOT PASSWORD
 # ==========================================
+# FIX: Naye version ke liye sahi syntax
 name, authentication_status, username = authenticator.login(
     location='main',
     fields={'Form name': 'Login', 'Username': 'Username', 'Password': 'Password', 'Login': 'Login'}
