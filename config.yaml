@@ -1,0 +1,15 @@
+cookie:
+  expiry_days: 30
+  key: some_signature_key # Ise kisi random string se replace kar sakte hain
+  name: some_cookie_name
+credentials:
+  usernames:
+    admin:
+      name: Arsalan
+      password: $2b$12$QoHAb/x1adCxIXWZ7dJsJuVuCDM.g7eNfCI3/wyZSaj/6yj5cZxwq # password123
+    testuser:
+      name: Test User
+      password: $2b$12$uON60sh.2IdIk4cka2YILuRo4kQai.pU8McK/owmmJ.QawK85GrdK # test123
+pre-authorized:
+  emails:
+    - newuser@gmail.com

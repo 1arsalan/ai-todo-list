@@ -1,5 +1,5 @@
 """
-AI To-Do List — Streamlit Frontend (Multi-User with Login)
+AI To-Do List — Streamlit Frontend (Professional Auth with Sign Up & Forgot Password)
 """
 import sys
 from pathlib import Path
@@ -10,6 +10,8 @@ sys.path.insert(0, str(root_path))
 
 import streamlit as st
 from datetime import datetime
+import yaml
+from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
 
 # Backend imports
@@ -34,37 +36,20 @@ if not PRIORITY_MODEL_PATH.exists() or not CATEGORY_MODEL_PATH.exists():
 st.set_page_config(page_title=APP_NAME, page_icon="🤖", layout="wide")
 
 # ==========================================
-# LOGIN SYSTEM SETUP
+# AUTHENTICATION SETUP (Config File Load)
 # ==========================================
-# Yahan aap naye users add kar sakte hain
-credentials = {
-    "usernames": {
-        "admin": {
-            "name": "Arsalan",
-            "password": stauth.Hasher.hash("password123"), # Login password
-        },
-        "testuser": {
-            "name": "Test User",
-            "password": stauth.Hasher.hash("test123"),
-        }
-    }
-}
-
-cookie_config = {
-    "name": "random_cookie_name",
-    "key": "random_signature_key",
-    "expiry_days": 1
-}
+# config.yaml file load karein
+config_path = root_path / "config.yaml"
+with open(config_path) as file:
+    config = yaml.load(file, Loader=SafeLoader)
 
 authenticator = stauth.Authenticate(
-    credentials,
-    cookie_config["name"],
-    cookie_config["key"],
-    cookie_config["expiry_days"],
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days'],
+    config['pre-authorized']
 )
-
-# Login Widget
-name, authentication_status, username = authenticator.login("main")
 
 # ==========================================
 # HELPER FUNCTIONS
@@ -85,27 +70,23 @@ def format_due_date(due_date_str: str | None) -> str:
     except Exception:
         return due_date_str
 
+def save_config():
+    """Naye users ya password change ko config.yaml mein save karein."""
+    with open(config_path, 'w') as file:
+        yaml.dump(config, file, default_flow_style=False)
+
 # ==========================================
-# MAIN APP LOGIC
+# SIDEBAR (Sirf Login ke baad dikhega)
 # ==========================================
-if authentication_status == False:
-    st.error("Username/password is incorrect")
-    
-elif authentication_status == None:
-    st.warning("Please enter your username and password")
-    st.info("💡 **Test Account:** Username: `testuser` | Password: `test123`")
-    
-elif authentication_status == True:
-    
-    # SIDEBAR
+if st.session_state.get("authentication_status"):
     with st.sidebar:
         st.title(f"🤖 {APP_NAME}")
-        st.write(f"Welcome, **{name}**!")
+        st.write(f"Welcome, **{st.session_state['name']}**!")
         authenticator.logout("Logout", "sidebar")
         st.markdown("---")
         
         st.subheader("📊 Stats")
-        stats = get_stats(username)
+        stats = get_stats(st.session_state['username'])
         col1, col2, col3 = st.columns(3)
         with col1: st.metric("🔴 High", stats.get("High", 0))
         with col2: st.metric("🟡 Medium", stats.get("Medium", 0))
@@ -116,6 +97,54 @@ elif authentication_status == True:
         st.subheader("✨ AI Features")
         st.markdown("- 🧠 Priority prediction\n- 🏷️ Category detection\n- 📅 Date parsing\n- 🔍 Duplicate detection")
 
+# ==========================================
+# LOGIN / SIGN UP / FORGOT PASSWORD
+# ==========================================
+# Login Widget (Professional Fix: fields dictionary use kiya hai)
+name, authentication_status, username = authenticator.login(
+    location='main',
+    fields={'Form name': 'Login', 'Username': 'Username', 'Password': 'Password', 'Login': 'Login'}
+)
+
+if authentication_status == False:
+    st.error("Username/password is incorrect")
+    
+elif authentication_status == None:
+    st.warning("Please enter your username and password")
+    
+    # SIGN UP SECTION
+    with st.expander("Don't have an account? Sign Up"):
+        try:
+            email_of_registered_user, username_of_registered_user, name_of_registered_user = authenticator.register_user(
+                location='main', 
+                pre_authorized=config['pre-authorized']['emails'], 
+                captcha=False
+            )
+            if email_of_registered_user:
+                st.success('User registered successfully! Please proceed to login.')
+                save_config()
+        except Exception as e:
+            st.error(e)
+
+    # FORGOT PASSWORD SECTION
+    with st.expander("Forgot Password?"):
+        try:
+            username_of_forgotten_password, email_of_forgotten_password, new_random_password = authenticator.forgot_password(location='main')
+            if username_of_forgotten_password:
+                st.success('New password generated. Please check the logs or contact support.')
+                # Yahan aap email bhejne ka logic add kar sakte hain
+                st.info(f"New Password: **{new_random_password}**") 
+                save_config()
+            elif username_of_forgotten_password == False:
+                st.error('Username not found')
+        except Exception as e:
+            st.error(e)
+
+elif authentication_status == True:
+    # ==========================================
+    # MAIN APP (Sirf Login ke baad chalega)
+    # ==========================================
+    
     st.title("🤖 AI-Powered To-Do List")
     st.caption("AI parses dates, predicts priority & category, and prevents duplicates.")
     st.markdown("---")
