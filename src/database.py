@@ -1,6 +1,6 @@
 """
 Database operations for AI To-Do List.
-All SQLite interactions go through this module.
+All SQLite interactions go through this module. (Multi-User Supported)
 """
 import sqlite3
 from datetime import datetime
@@ -22,9 +22,11 @@ def init_database() -> None:
     conn = get_connection()
     cursor = conn.cursor()
 
+    # NAYA: user_id add kiya gaya hai
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
             title TEXT NOT NULL,
             priority TEXT NOT NULL,
             category TEXT NOT NULL,
@@ -40,20 +42,15 @@ def init_database() -> None:
     print(f"✅ Database initialized at: {DB_PATH}")
 
 
-def add_task(
-    title: str,
-    priority: str,
-    category: str,
-    due_date: Optional[str] = None
-) -> int:
-    """Insert a new task. Returns the task ID."""
+def add_task(username: str, title: str, priority: str, category: str, due_date: Optional[str] = None) -> int:
+    """Insert a new task for a specific user."""
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
-        INSERT INTO tasks (title, priority, category, due_date, created_at)
-        VALUES (?, ?, ?, ?, ?)
-    """, (title, priority, category, due_date, datetime.now().isoformat()))
+        INSERT INTO tasks (user_id, title, priority, category, due_date, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (username, title, priority, category, due_date, datetime.now().isoformat()))
 
     task_id = cursor.lastrowid
     conn.commit()
@@ -61,17 +58,13 @@ def add_task(
     return task_id
 
 
-def get_all_tasks(
-    filter_priority: Optional[str] = None,
-    filter_category: Optional[str] = None,
-    show_done: bool = False
-) -> list[dict]:
-    """Fetch tasks with optional filters."""
+def get_all_tasks(username: str, filter_priority: Optional[str] = None, filter_category: Optional[str] = None, show_done: bool = False) -> list[dict]:
+    """Fetch tasks for a specific user with optional filters."""
     conn = get_connection()
     cursor = conn.cursor()
 
-    query = "SELECT * FROM tasks WHERE 1=1"
-    params = []
+    query = "SELECT * FROM tasks WHERE user_id = ?"
+    params = [username]
 
     if filter_priority:
         query += " AND priority = ?"
@@ -84,7 +77,6 @@ def get_all_tasks(
     if not show_done:
         query += " AND done = 0"
 
-    # Sort: High priority first, then by due date
     query += """
         ORDER BY
             CASE priority
@@ -134,48 +126,21 @@ def delete_task(task_id: int) -> None:
     conn.close()
 
 
-def get_stats() -> dict:
-    """Return statistics: pending tasks by priority."""
+def get_stats(username: str) -> dict:
+    """Return statistics: pending tasks by priority for a specific user."""
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
         SELECT priority, COUNT(*) as count
         FROM tasks
-        WHERE done = 0
+        WHERE done = 0 AND user_id = ?
         GROUP BY priority
-    """)
+    """, (username,))
     stats = {row["priority"]: row["count"] for row in cursor.fetchall()}
 
-    cursor.execute("SELECT COUNT(*) as total FROM tasks")
+    cursor.execute("SELECT COUNT(*) as total FROM tasks WHERE user_id = ?", (username,))
     stats["total"] = cursor.fetchone()["total"]
 
     conn.close()
     return stats
-
-
-# Quick test (only runs when this file is executed directly)
-if __name__ == "__main__":
-    init_database()
-    print("Testing database operations...")
-
-    # Add a test task
-    tid = add_task("Test task", "High", "Work")
-    print(f"✅ Added task with ID: {tid}")
-
-    # Fetch it
-    tasks = get_all_tasks()
-    print(f"✅ Total tasks: {len(tasks)}")
-    print(f"   First task: {tasks[0]['title']}")
-
-    # Mark complete
-    mark_complete(tid)
-    print(f"✅ Marked task {tid} as complete")
-
-    # Stats
-    print(f"✅ Stats: {get_stats()}")
-
-    # Cleanup
-    delete_task(tid)
-    print(f"✅ Deleted task {tid}")
-    print("\n🎉 All database operations working!")
