@@ -38,17 +38,16 @@ st.set_page_config(page_title=APP_NAME, page_icon="🤖", layout="wide")
 # ==========================================
 # AUTHENTICATION SETUP (Config File Load)
 # ==========================================
-# config.yaml file load karein
 config_path = root_path / "config.yaml"
 with open(config_path) as file:
     config = yaml.load(file, Loader=SafeLoader)
 
+# FIX: pre_authorized ko Authenticate class se hata diya gaya hai
 authenticator = stauth.Authenticate(
     config['credentials'],
     config['cookie']['name'],
     config['cookie']['key'],
-    config['cookie']['expiry_days'],
-    config['pre-authorized']
+    config['cookie']['expiry_days']
 )
 
 # ==========================================
@@ -71,7 +70,6 @@ def format_due_date(due_date_str: str | None) -> str:
         return due_date_str
 
 def save_config():
-    """Naye users ya password change ko config.yaml mein save karein."""
     with open(config_path, 'w') as file:
         yaml.dump(config, file, default_flow_style=False)
 
@@ -100,7 +98,6 @@ if st.session_state.get("authentication_status"):
 # ==========================================
 # LOGIN / SIGN UP / FORGOT PASSWORD
 # ==========================================
-# Login Widget (Professional Fix: fields dictionary use kiya hai)
 name, authentication_status, username = authenticator.login(
     location='main',
     fields={'Form name': 'Login', 'Username': 'Username', 'Password': 'Password', 'Login': 'Login'}
@@ -115,9 +112,10 @@ elif authentication_status == None:
     # SIGN UP SECTION
     with st.expander("Don't have an account? Sign Up"):
         try:
+            # FIX: pre_authorized ab register_user mein pass hota hai
             email_of_registered_user, username_of_registered_user, name_of_registered_user = authenticator.register_user(
                 location='main', 
-                pre_authorized=config['pre-authorized']['emails'], 
+                pre_authorized=config['pre-authorized']['emails'],
                 captcha=False
             )
             if email_of_registered_user:
@@ -132,7 +130,6 @@ elif authentication_status == None:
             username_of_forgotten_password, email_of_forgotten_password, new_random_password = authenticator.forgot_password(location='main')
             if username_of_forgotten_password:
                 st.success('New password generated. Please check the logs or contact support.')
-                # Yahan aap email bhejne ka logic add kar sakte hain
                 st.info(f"New Password: **{new_random_password}**") 
                 save_config()
             elif username_of_forgotten_password == False:
