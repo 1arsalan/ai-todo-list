@@ -65,7 +65,7 @@ if not st.session_state["logged_in"]:
                     st.success(f"Welcome back, {user['name']}!")
                     st.rerun()
                 else:
-                    st.error("Invalid username or password. (Default: admin / admin123)")
+                    st.error("Invalid username or password. Please try again.")
 
     # --- TAB 2: SIGN UP ---
     with tab2:
