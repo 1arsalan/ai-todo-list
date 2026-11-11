@@ -1,0 +1,41 @@
+task,category
+Submit report,Work
+Client meeting,Work
+Fix bug,Work
+Update resume,Work
+Email boss,Work
+Prepare presentation,Work
+Code review,Work
+Team standup,Work
+Deploy app,Work
+Write documentation,Work
+Buy groceries,Personal
+Clean room,Personal
+Pay bills,Personal
+Call mom,Personal
+Buy clothes,Personal
+Water plants,Personal
+Fix bike,Personal
+Sort photos,Personal
+Gym workout,Health
+Doctor appointment,Health
+Take medicine,Health
+Morning walk,Health
+Drink water,Health
+Yoga session,Health
+Dentist visit,Health
+Sleep early,Health
+Prepare for exam,Study
+Read chapter,Study
+Submit assignment,Study
+Practice math,Study
+Watch tutorial,Study
+Revise notes,Study
+Solve past papers,Study
+Learn python,Study
+Watch movie,Entertainment
+Play games,Entertainment
+Listen music,Entertainment
+Watch netflix,Entertainment
+Read novel,Entertainment
+Browse youtube,Entertainment
