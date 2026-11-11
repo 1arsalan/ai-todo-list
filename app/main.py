@@ -74,17 +74,31 @@ def save_config():
         yaml.dump(config, file, default_flow_style=False)
 
 # ==========================================
+# LOGIN / SIGN UP / FORGOT PASSWORD
+# ==========================================
+# FIX: authenticator.login() ko call karein (bina return value assign kiye)
+authenticator.login(
+    location='main',
+    fields={'Form name': 'Login', 'Username': 'Username', 'Password': 'Password', 'Login': 'Login'}
+)
+
+# Ab session state se values nikaalein
+name = st.session_state.get("name")
+authentication_status = st.session_state.get("authentication_status")
+username = st.session_state.get("username")
+
+# ==========================================
 # SIDEBAR (Sirf Login ke baad dikhega)
 # ==========================================
-if st.session_state.get("authentication_status"):
+if authentication_status:
     with st.sidebar:
         st.title(f"🤖 {APP_NAME}")
-        st.write(f"Welcome, **{st.session_state['name']}**!")
+        st.write(f"Welcome, **{name}**!")
         authenticator.logout("Logout", "sidebar")
         st.markdown("---")
         
         st.subheader("📊 Stats")
-        stats = get_stats(st.session_state['username'])
+        stats = get_stats(username)
         col1, col2, col3 = st.columns(3)
         with col1: st.metric("🔴 High", stats.get("High", 0))
         with col2: st.metric("🟡 Medium", stats.get("Medium", 0))
@@ -96,14 +110,8 @@ if st.session_state.get("authentication_status"):
         st.markdown("- 🧠 Priority prediction\n- 🏷️ Category detection\n- 📅 Date parsing\n- 🔍 Duplicate detection")
 
 # ==========================================
-# LOGIN / SIGN UP / FORGOT PASSWORD
+# MAIN LOGIC
 # ==========================================
-# FIX: Naye version ke liye sahi syntax
-name, authentication_status, username = authenticator.login(
-    location='main',
-    fields={'Form name': 'Login', 'Username': 'Username', 'Password': 'Password', 'Login': 'Login'}
-)
-
 if authentication_status == False:
     st.error("Username/password is incorrect")
     
