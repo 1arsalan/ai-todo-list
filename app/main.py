@@ -1,28 +1,25 @@
 """
-AI To-Do List — Streamlit Frontend (Professional Auth with Sign Up & Forgot Password)
+AI To-Do List — Streamlit Frontend (Professional Custom Auth & Multi-User)
 """
 import sys
 from pathlib import Path
 
-# Project root ko sys.path mein add karein
 root_path = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(root_path))
 
 import streamlit as st
 from datetime import datetime
-import yaml
-from yaml.loader import SafeLoader
-import streamlit_authenticator as stauth
 
 # Backend imports
 from src.database import (
-    add_task, get_all_tasks, mark_complete, delete_task, get_stats, init_database
+    add_task, get_all_tasks, mark_complete, delete_task, get_stats, init_database,
+    register_user, authenticate_user
 )
 from src.predict import predict_all
 from src.nlp_parser import parse_task
 from src.duplicate_check import find_duplicates
 from src.config import PRIORITY_LEVELS, CATEGORIES, APP_NAME, APP_VERSION
-from src.config import MODELS_DIR, PRIORITY_MODEL_PATH, CATEGORY_MODEL_PATH
+from src.config import PRIORITY_MODEL_PATH, CATEGORY_MODEL_PATH
 from src.train import main as train_main
 
 # ==========================================
@@ -30,75 +27,87 @@ from src.train import main as train_main
 # ==========================================
 init_database()
 if not PRIORITY_MODEL_PATH.exists() or not CATEGORY_MODEL_PATH.exists():
-    with st.spinner("🤖 First run on cloud: Training AI models... This takes ~30 seconds."):
+    with st.spinner("🤖 First run on cloud: Training AI models..."):
         train_main()
 
 st.set_page_config(page_title=APP_NAME, page_icon="🤖", layout="wide")
 
 # ==========================================
-# AUTHENTICATION SETUP (Config File Load)
+# SESSION STATE INIT (Track login)
 # ==========================================
-config_path = root_path / "config.yaml"
-with open(config_path) as file:
-    config = yaml.load(file, Loader=SafeLoader)
-
-# FIX: pre_authorized ko Authenticate class se hata diya gaya hai
-authenticator = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days']
-)
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+    st.session_state["username"] = ""
+    st.session_state["name"] = ""
 
 # ==========================================
-# HELPER FUNCTIONS
+# LOGIN & SIGN UP UI
 # ==========================================
-def is_overdue(due_date_str: str | None, done: bool) -> bool:
-    if not due_date_str or done: return False
-    try:
-        due = datetime.fromisoformat(due_date_str)
-        return due < datetime.now()
-    except Exception:
-        return False
+if not st.session_state["logged_in"]:
+    st.title("🔐 Welcome to AI To-Do List")
+    st.write("Please login or create a new account to manage your tasks.")
+    
+    tab1, tab2 = st.tabs(["Login", "Sign Up"])
+    
+    # --- TAB 1: LOGIN ---
+    with tab1:
+        with st.form("login_form"):
+            login_user = st.text_input("Username")
+            login_pass = st.text_input("Password", type="password")
+            login_btn = st.form_submit_button("Login", use_container_width=True)
+            
+            if login_btn:
+                user = authenticate_user(login_user, login_pass)
+                if user:
+                    st.session_state["logged_in"] = True
+                    st.session_state["username"] = user["username"]
+                    st.session_state["name"] = user["name"]
+                    st.success(f"Welcome back, {user['name']}!")
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password. (Default: admin / admin123)")
 
-def format_due_date(due_date_str: str | None) -> str:
-    if not due_date_str: return ""
-    try:
-        due = datetime.fromisoformat(due_date_str)
-        return due.strftime("%d %b %Y, %I:%M %p")
-    except Exception:
-        return due_date_str
-
-def save_config():
-    with open(config_path, 'w') as file:
-        yaml.dump(config, file, default_flow_style=False)
+    # --- TAB 2: SIGN UP ---
+    with tab2:
+        with st.form("signup_form"):
+            new_name = st.text_input("Full Name")
+            new_user = st.text_input("Choose Username")
+            new_pass = st.text_input("Choose Password", type="password")
+            new_pass_confirm = st.text_input("Confirm Password", type="password")
+            signup_btn = st.form_submit_button("Create Account", use_container_width=True)
+            
+            if signup_btn:
+                if not new_name or not new_user or not new_pass:
+                    st.warning("Please fill all fields.")
+                elif new_pass != new_pass_confirm:
+                    st.error("Passwords do not match.")
+                elif len(new_pass) < 6:
+                    st.warning("Password must be at least 6 characters.")
+                else:
+                    success = register_user(new_user, new_pass, new_name)
+                    if success:
+                        st.success("Account created successfully! Please go to the Login tab.")
+                    else:
+                        st.error("Username already exists. Please choose another.")
 
 # ==========================================
-# LOGIN / SIGN UP / FORGOT PASSWORD
+# MAIN APP (Sirf Login ke baad chalega)
 # ==========================================
-# FIX: authenticator.login() ko call karein (bina return value assign kiye)
-authenticator.login(
-    location='main',
-    fields={'Form name': 'Login', 'Username': 'Username', 'Password': 'Password', 'Login': 'Login'}
-)
-
-# Ab session state se values nikaalein
-name = st.session_state.get("name")
-authentication_status = st.session_state.get("authentication_status")
-username = st.session_state.get("username")
-
-# ==========================================
-# SIDEBAR (Sirf Login ke baad dikhega)
-# ==========================================
-if authentication_status:
+else:
+    # --- SIDEBAR ---
     with st.sidebar:
         st.title(f"🤖 {APP_NAME}")
-        st.write(f"Welcome, **{name}**!")
-        authenticator.logout("Logout", "sidebar")
-        st.markdown("---")
+        st.write(f"Welcome, **{st.session_state['name']}**!")
         
-        st.subheader("📊 Stats")
-        stats = get_stats(username)
+        if st.button("Logout", use_container_width=True):
+            st.session_state["logged_in"] = False
+            st.session_state["username"] = ""
+            st.session_state["name"] = ""
+            st.rerun()
+            
+        st.markdown("---")
+        st.subheader("📊 Your Stats")
+        stats = get_stats(st.session_state["username"])
         col1, col2, col3 = st.columns(3)
         with col1: st.metric("🔴 High", stats.get("High", 0))
         with col2: st.metric("🟡 Medium", stats.get("Medium", 0))
@@ -109,48 +118,7 @@ if authentication_status:
         st.subheader("✨ AI Features")
         st.markdown("- 🧠 Priority prediction\n- 🏷️ Category detection\n- 📅 Date parsing\n- 🔍 Duplicate detection")
 
-# ==========================================
-# MAIN LOGIC
-# ==========================================
-if authentication_status == False:
-    st.error("Username/password is incorrect")
-    
-elif authentication_status == None:
-    st.warning("Please enter your username and password")
-    
-    # SIGN UP SECTION
-    with st.expander("Don't have an account? Sign Up"):
-        try:
-            # FIX: pre_authorized ab register_user mein pass hota hai
-            email_of_registered_user, username_of_registered_user, name_of_registered_user = authenticator.register_user(
-                location='main', 
-                pre_authorized=config['pre-authorized']['emails'],
-                captcha=False
-            )
-            if email_of_registered_user:
-                st.success('User registered successfully! Please proceed to login.')
-                save_config()
-        except Exception as e:
-            st.error(e)
-
-    # FORGOT PASSWORD SECTION
-    with st.expander("Forgot Password?"):
-        try:
-            username_of_forgotten_password, email_of_forgotten_password, new_random_password = authenticator.forgot_password(location='main')
-            if username_of_forgotten_password:
-                st.success('New password generated. Please check the logs or contact support.')
-                st.info(f"New Password: **{new_random_password}**") 
-                save_config()
-            elif username_of_forgotten_password == False:
-                st.error('Username not found')
-        except Exception as e:
-            st.error(e)
-
-elif authentication_status == True:
-    # ==========================================
-    # MAIN APP (Sirf Login ke baad chalega)
-    # ==========================================
-    
+    # --- MAIN CONTENT ---
     st.title("🤖 AI-Powered To-Do List")
     st.caption("AI parses dates, predicts priority & category, and prevents duplicates.")
     st.markdown("---")
@@ -174,7 +142,7 @@ elif authentication_status == True:
                     clean_task = parsed["task"]
                     due_date = parsed["due_date"]
                     
-                    existing = get_all_tasks(username, show_done=False)
+                    existing = get_all_tasks(st.session_state["username"], show_done=False)
                     existing_titles = [t["title"] for t in existing]
                     duplicates = find_duplicates(clean_task, existing_titles)
                     
@@ -185,10 +153,10 @@ elif authentication_status == True:
                         predictions = predict_all(clean_task)
                         final_priority = predictions["priority"] if override_priority == "Auto (AI)" else override_priority
                         
-                        add_task(username, clean_task, final_priority, predictions["category"], due_date)
+                        add_task(st.session_state["username"], clean_task, final_priority, predictions["category"], due_date)
                         
                         msg = f"✅ Task added! Priority: {final_priority} | Category: {predictions['category']}"
-                        if due_date: msg += f" | Due: {format_due_date(due_date)}"
+                        if due_date: msg += f" | Due: {due_date}"
                         st.success(msg)
                         st.rerun()
 
@@ -202,7 +170,7 @@ elif authentication_status == True:
     with col3: show_done = st.checkbox("Show completed", key="s_done")
 
     tasks = get_all_tasks(
-        username,
+        st.session_state["username"],
         filter_priority=None if filter_priority == "All" else filter_priority,
         filter_category=None if filter_category == "All" else filter_category,
         show_done=show_done
@@ -215,7 +183,15 @@ elif authentication_status == True:
         priority = task["priority"]
         done = bool(task["done"])
         due_date = task.get("due_date")
-        overdue = is_overdue(due_date, done)
+        
+        # Overdue logic
+        overdue = False
+        if due_date and not done:
+            try:
+                if datetime.fromisoformat(due_date) < datetime.now():
+                    overdue = True
+            except: pass
+            
         pri_emoji = {"High": "🔴", "Medium": "🟡", "Low": "🟢"}.get(priority, "⚪")
 
         col1, col2, col3, col4, col5 = st.columns([0.5, 4, 1, 1.2, 1.2])
@@ -231,7 +207,7 @@ elif authentication_status == True:
             if overdue: title = f"🚨 {title}"
             st.markdown(title)
             if due_date:
-                st.caption(f"🚨 **OVERDUE:** {format_due_date(due_date)}" if overdue else f"📅 Due: {format_due_date(due_date)}")
+                st.caption(f"🚨 **OVERDUE:** {due_date}" if overdue else f"📅 Due: {due_date}")
                 
         with col3: st.markdown(f"{pri_emoji} {priority}")
         with col4: st.markdown(f"🏷️ {task['category']}")

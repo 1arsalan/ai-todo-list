@@ -1,8 +1,9 @@
 """
 Database operations for AI To-Do List.
-All SQLite interactions go through this module. (Multi-User Supported)
+All SQLite interactions go through this module. (Professional Multi-User Supported)
 """
 import sqlite3
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -17,12 +18,28 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def hash_password(password: str) -> str:
+    """Hash password for secure storage."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
 def init_database() -> None:
-    """Create tables if they don't exist."""
+    """Create tables for Users and Tasks if they don't exist."""
     conn = get_connection()
     cursor = conn.cursor()
 
-    # NAYA: user_id add kiya gaya hai
+    # 1. USERS TABLE (Login/Signup ke liye)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            name TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+    # 2. TASKS TABLE (Multi-user tasks)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,11 +54,49 @@ def init_database() -> None:
         )
     """)
 
+    # Default Admin User create karein (Agar pehle se nahi hai)
+    cursor.execute("SELECT * FROM users WHERE username = 'admin'")
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO users (username, password, name, created_at) VALUES (?, ?, ?, ?)",
+                       ("admin", hash_password("admin123"), "Admin Arsalan", datetime.now().isoformat()))
+
     conn.commit()
     conn.close()
     print(f"✅ Database initialized at: {DB_PATH}")
 
 
+# ==========================================
+# USER AUTHENTICATION FUNCTIONS
+# ==========================================
+def register_user(username: str, password: str, name: str) -> bool:
+    """New user register karein."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO users (username, password, name, created_at) VALUES (?, ?, ?, ?)",
+                       (username, hash_password(password), name, datetime.now().isoformat()))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False  # Username already exists
+    finally:
+        conn.close()
+
+
+def authenticate_user(username: str, password: str) -> Optional[dict]:
+    """Login check karein."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?",
+                   (username, hash_password(password)))
+    user = cursor.fetchone()
+    conn.close()
+    return dict(user) if user else None
+
+
+# ==========================================
+# TASK FUNCTIONS
+# ==========================================
 def add_task(username: str, title: str, priority: str, category: str, due_date: Optional[str] = None) -> int:
     """Insert a new task for a specific user."""
     conn = get_connection()
